@@ -80,8 +80,6 @@ class RFM69 {
     static volatile uint8_t SENDERID;
     static volatile uint8_t TARGETID; // should match _address
     static volatile uint8_t PAYLOADLEN;
-    static volatile uint8_t ACK_REQUESTED;
-    static volatile uint8_t ACK_RECEIVED; // should be polled immediately after sending a packet with ACK request
     static volatile int16_t RSSI; // most accurate RSSI during reception (closest to the reception)
     static volatile uint8_t _mode; // should be protected?
 
@@ -99,12 +97,8 @@ class RFM69 {
     void setAddress(uint8_t addr);
     void setNetwork(uint8_t networkID);
     bool canSend();
-    virtual void send(uint8_t toAddress, const void* buffer, uint8_t bufferSize, bool requestACK=false);
-    virtual bool sendWithRetry(uint8_t toAddress, const void* buffer, uint8_t bufferSize, uint8_t retries=2, uint8_t retryWaitTime=40); // 40ms roundtrip req for 61byte packets
+    virtual void send(uint8_t toAddress, const void* buffer, uint8_t bufferSize);
     virtual bool receiveDone();
-    bool ACKReceived(uint8_t fromNodeID);
-    bool ACKRequested();
-    virtual void sendACK(const void* buffer = "", uint8_t bufferSize=0);
     uint32_t getFrequency();
     void setFrequency(uint32_t freqHz);
     void encrypt(const char* key);
@@ -128,7 +122,7 @@ class RFM69 {
     void virtual interruptHandler();
     virtual void interruptHook(uint8_t CTLbyte) {};
     static volatile bool _inISR;
-    virtual void sendFrame(uint8_t toAddress, const void* buffer, uint8_t size, bool requestACK=false, bool sendACK=false);
+    virtual void sendFrame(uint8_t toAddress, const void* buffer, uint8_t size);
 
     static RFM69* selfPointer;
     uint8_t _slaveSelectPin;

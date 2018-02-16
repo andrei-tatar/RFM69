@@ -33,8 +33,6 @@ volatile uint8_t RFM69::DATALEN;
 volatile uint8_t RFM69::SENDERID;
 volatile uint8_t RFM69::TARGETID;     // should match _address
 volatile uint8_t RFM69::PAYLOADLEN;
-volatile uint8_t RFM69::ACK_REQUESTED;
-volatile uint8_t RFM69::ACK_RECEIVED; // should be polled immediately after sending a packet with ACK request
 volatile int16_t RFM69::RSSI;          // most accurate RSSI during reception (closest to the reception)
 volatile bool RFM69::_inISR;
 RFM69* RFM69::selfPointer;
@@ -212,66 +210,16 @@ bool RFM69::canSend()
   return false;
 }
 
-void RFM69::send(uint8_t toAddress, const void* buffer, uint8_t bufferSize, bool requestACK)
+void RFM69::send(uint8_t toAddress, const void* buffer, uint8_t bufferSize)
 {
   writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFB) | RF_PACKET2_RXRESTART); // avoid RX deadlocks
   uint32_t now = millis();
   while (!canSend() && millis() - now < RF69_CSMA_LIMIT_MS) receiveDone();
-  sendFrame(toAddress, buffer, bufferSize, requestACK, false);
-}
-
-// to increase the chance of getting a packet across, call this function instead of send
-// and it handles all the ACK requesting/retrying for you :)
-// The only twist is that you have to manually listen to ACK requests on the other side and send back the ACKs
-// The reason for the semi-automaton is that the lib is interrupt driven and
-// requires user action to read the received data and decide what to do with it
-// replies usually take only 5..8ms at 50kbps@915MHz
-bool RFM69::sendWithRetry(uint8_t toAddress, const void* buffer, uint8_t bufferSize, uint8_t retries, uint8_t retryWaitTime) {
-  uint32_t sentTime;
-  for (uint8_t i = 0; i <= retries; i++)
-  {
-    send(toAddress, buffer, bufferSize, true);
-    sentTime = millis();
-    while (millis() - sentTime < retryWaitTime)
-    {
-      if (ACKReceived(toAddress))
-      {
-        //Serial.print(" ~ms:"); Serial.print(millis() - sentTime);
-        return true;
-      }
-    }
-    //Serial.print(" RETRY#"); Serial.println(i + 1);
-  }
-  return false;
-}
-
-// should be polled immediately after sending a packet with ACK request
-bool RFM69::ACKReceived(uint8_t fromNodeID) {
-  if (receiveDone())
-    return (SENDERID == fromNodeID || fromNodeID == RF69_BROADCAST_ADDR) && ACK_RECEIVED;
-  return false;
-}
-
-// check whether an ACK was requested in the last received packet (non-broadcasted packet)
-bool RFM69::ACKRequested() {
-  return ACK_REQUESTED && (TARGETID != RF69_BROADCAST_ADDR);
-}
-
-// should be called immediately after reception in case sender wants ACK
-void RFM69::sendACK(const void* buffer, uint8_t bufferSize) {
-  ACK_REQUESTED = 0;   // TWS added to make sure we don't end up in a timing race and infinite loop sending Acks
-  uint8_t sender = SENDERID;
-  int16_t _RSSI = RSSI; // save payload received RSSI value
-  writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFB) | RF_PACKET2_RXRESTART); // avoid RX deadlocks
-  uint32_t now = millis();
-  while (!canSend() && millis() - now < RF69_CSMA_LIMIT_MS) receiveDone();
-  SENDERID = sender;    // TWS: Restore SenderID after it gets wiped out by receiveDone()
-  sendFrame(sender, buffer, bufferSize, false, true);
-  RSSI = _RSSI; // restore payload RSSI
+  sendFrame(toAddress, buffer, bufferSize);
 }
 
 // internal function
-void RFM69::sendFrame(uint8_t toAddress, const void* buffer, uint8_t bufferSize, bool requestACK, bool sendACK)
+void RFM69::sendFrame(uint8_t toAddress, const void* buffer, uint8_t bufferSize)
 {
   setMode(RF69_MODE_STANDBY); // turn off receiver to prevent reception while filling fifo
   while ((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00); // wait for ModeReady
@@ -280,11 +228,7 @@ void RFM69::sendFrame(uint8_t toAddress, const void* buffer, uint8_t bufferSize,
 
   // control byte
   uint8_t CTLbyte = 0x00;
-  if (sendACK)
-    CTLbyte = RFM69_CTL_SENDACK;
-  else if (requestACK)
-    CTLbyte = RFM69_CTL_REQACK;
-
+  
   // write to FIFO
   select();
   SPI.transfer(REG_FIFO | 0x80);
@@ -332,9 +276,6 @@ void RFM69::interruptHandler() {
     SENDERID = SPI.transfer(0);
     uint8_t CTLbyte = SPI.transfer(0);
 
-    ACK_RECEIVED = CTLbyte & RFM69_CTL_SENDACK; // extract ACK-received flag
-    ACK_REQUESTED = CTLbyte & RFM69_CTL_REQACK; // extract ACK-requested flag
-    
     interruptHook(CTLbyte);     // TWS: hook to derived class interrupt function
 
     for (uint8_t i = 0; i < DATALEN; i++)
@@ -358,8 +299,6 @@ void RFM69::receiveBegin() {
   SENDERID = 0;
   TARGETID = 0;
   PAYLOADLEN = 0;
-  ACK_REQUESTED = 0;
-  ACK_RECEIVED = 0;
   RSSI = 0;
   if (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY)
     writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFB) | RF_PACKET2_RXRESTART); // avoid RX deadlocks

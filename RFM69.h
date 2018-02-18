@@ -25,29 +25,10 @@
 // **********************************************************************************
 #ifndef RFM69_h
 #define RFM69_h
-#include <Arduino.h>            // assumes Arduino IDE v1.0 or greater
+
+#include <stdint.h>
 
 #define RF69_MAX_DATA_LEN       61 // to take advantage of the built in AES/CRC we want to limit the frame size to the internal FIFO size (66 bytes - 3 bytes overhead - 2 bytes crc)
-#define RF69_SPI_CS             SS // SS is the SPI slave select pin, for instance D10 on ATmega328
-
-// INT0 on AVRs should be connected to RFM69's DIO0 (ex on ATmega328 it's D2, on ATmega644/1284 it's D2)
-#if defined(__AVR_ATmega168__) || defined(__AVR_ATmega328P__) || defined(__AVR_ATmega88) || defined(__AVR_ATmega8__) || defined(__AVR_ATmega88__)
-  #define RF69_IRQ_PIN          2
-  #define RF69_IRQ_NUM          0
-#elif defined(__AVR_ATmega644P__) || defined(__AVR_ATmega1284P__)
-  #define RF69_IRQ_PIN          2
-  #define RF69_IRQ_NUM          2
-#elif defined(__AVR_ATmega32U4__)
-  #define RF69_IRQ_PIN          3
-  #define RF69_IRQ_NUM          0
-#elif defined(__arm__)//Use pin 10 or any pin you want
-  #define RF69_IRQ_PIN          PA3
-  #define RF69_IRQ_NUM          3
-#else 
-  #define RF69_IRQ_PIN          2
-  #define RF69_IRQ_NUM          0  
-#endif
-
 
 #define CSMA_LIMIT              -90 // upper RX signal sensitivity threshold in dBm for carrier sense access
 #define RF69_MODE_SLEEP         0 // XTAL OFF
@@ -83,10 +64,7 @@ class RFM69 {
     static volatile int16_t RSSI; // most accurate RSSI during reception (closest to the reception)
     static volatile uint8_t _mode; // should be protected?
 
-    RFM69(uint8_t slaveSelectPin=RF69_SPI_CS, uint8_t interruptPin=RF69_IRQ_PIN, bool isRFM69HW=false, uint8_t interruptNum=RF69_IRQ_NUM) {
-      _slaveSelectPin = slaveSelectPin;
-      _interruptPin = interruptPin;
-      _interruptNum = interruptNum;
+    RFM69(bool isRFM69HW=false) {
       _mode = RF69_MODE_STANDBY;
       _promiscuousMode = false;
       _powerLevel = 31;
@@ -94,15 +72,12 @@ class RFM69 {
     }
 
     bool initialize(uint8_t freqBand, uint8_t ID, uint8_t networkID=1);
-    void setAddress(uint8_t addr);
-    void setNetwork(uint8_t networkID);
     bool canSend();
-    virtual void send(uint8_t toAddress, const void* buffer, uint8_t bufferSize);
+    virtual void send(uint8_t toAddress, const uint8_t* buffer, uint8_t bufferSize);
     virtual bool receiveDone();
     uint32_t getFrequency();
     void setFrequency(uint32_t freqHz);
     void encrypt(const char* key);
-    void setCS(uint8_t newSPISlaveSelect);
     int16_t readRSSI(bool forceTrigger=false);
     void promiscuous(bool onOff=true);
     virtual void setHighPower(bool onOFF=true); // has to be called after initialize() for RFM69HW
@@ -114,20 +89,14 @@ class RFM69 {
     // allow hacking registers by making these public
     uint8_t readReg(uint8_t addr);
     void writeReg(uint8_t addr, uint8_t val);
-    void readAllRegs();
-    void readAllRegsCompact();
+        
+    static void interrupt();
 
   protected:
-    static void isr0();
     void virtual interruptHandler();
-    virtual void interruptHook(uint8_t CTLbyte) {};
-    static volatile bool _inISR;
-    virtual void sendFrame(uint8_t toAddress, const void* buffer, uint8_t size);
+    virtual void sendFrame(uint8_t toAddress, const uint8_t* buffer, uint8_t size);
 
     static RFM69* selfPointer;
-    uint8_t _slaveSelectPin;
-    uint8_t _interruptPin;
-    uint8_t _interruptNum;
     uint8_t _address;
     bool _promiscuousMode;
     uint8_t _powerLevel;
@@ -140,8 +109,6 @@ class RFM69 {
     virtual void receiveBegin();
     virtual void setMode(uint8_t mode);
     virtual void setHighPowerRegs(bool onOff);
-    virtual void select();
-    virtual void unselect();
     inline void maybeInterrupts();
 };
 

@@ -103,6 +103,7 @@ bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID)
     return false;
 
   _address = nodeID;
+  receiveBegin();
   return true;
 }
 

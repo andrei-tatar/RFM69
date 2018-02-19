@@ -44,14 +44,9 @@
 #define RF69_915MHZ 91
 
 #define COURSE_TEMP_COEF -90 // puts the temperature reading in the ballpark, user can fine tune the returned value
-#define RF69_BROADCAST_ADDR 255
 #define RF69_CSMA_LIMIT_MS 1000
 #define RF69_TX_LIMIT_MS 1000
 #define RF69_FSTEP 61.03515625 // == FXOSC / 2^19 = 32MHz / 2^19 (p13 in datasheet)
-
-// TWS: define CTLbyte bits
-#define RFM69_CTL_SENDACK 0x80
-#define RFM69_CTL_REQACK 0x40
 
 typedef void (*spiTransferFunction)(uint8_t *data, uint8_t len);
 typedef uint32_t (*getTimeFunction)();

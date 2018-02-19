@@ -208,17 +208,13 @@ void RFM69::sendFrame(uint8_t toAddress, const uint8_t* buffer, const uint8_t bu
   writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_00); // DIO0 is "Packet Sent"
   if (bufferSize > RF69_MAX_DATA_LEN) return;
 
-  // control byte
-  uint8_t CTLbyte = 0x00;
-  
   // write to FIFO
-  uint8_t data[5 + bufferSize];
+  uint8_t data[4 + bufferSize];
   data[0] = REG_FIFO | 0x80;
   data[1] = bufferSize + 3;
   data[2] = toAddress;
   data[3] = _address;
-  data[4] = CTLbyte;
-  memcpy(&data[5], buffer, bufferSize);
+  memcpy(&data[4], buffer, bufferSize);
   _spiTransfer(data, sizeof(data));
 
   _packetSent = false;
@@ -234,9 +230,8 @@ void RFM69::interrupt(RfmPacket &packet) {
   
   if (_mode == RF69_MODE_RX && (irqFlags & RF_IRQFLAGS2_PAYLOADREADY))
   {
-    //RSSI = readRSSI();
     setMode(RF69_MODE_STANDBY);
-    uint8_t header[5] = { REG_FIFO & 0x7F };
+    uint8_t header[4] = { REG_FIFO & 0x7F };
     _spiTransfer(header, sizeof(header));
 
     uint8_t payloadLength = header[1];
@@ -244,16 +239,16 @@ void RFM69::interrupt(RfmPacket &packet) {
     //uint8_t target = header[2];
     packet.size = payloadLength - 3;
     packet.from = header[3];
-    packet.ctl = header[4];
     
     packet.data[0] = REG_FIFO & 0x7F;
     _spiTransfer(packet.data, packet.size + 1);
     for (uint8_t i=0;i<packet.size;i++) packet.data[i] = packet.data[i+1];
     setMode(RF69_MODE_RX);
-    packet.rssi = readRSSI();
   } else if (_mode == RF69_MODE_TX && (irqFlags & RF_IRQFLAGS2_PACKETSENT)) {
 	  _packetSent = true;
   }
+  
+  packet.rssi = readRSSI();
 }
 
 // internal function
@@ -332,7 +327,7 @@ uint8_t RFM69::readTemperature(uint8_t calFactor) // returns centigrade
   writeReg(REG_TEMP1, RF_TEMP1_MEAS_START);
   while ((readReg(REG_TEMP1) & RF_TEMP1_MEAS_RUNNING));
   return ~readReg(REG_TEMP2) + COURSE_TEMP_COEF + calFactor; // 'complement' corrects the slope, rising temp = rising val
-} // COURSE_TEMP_COEF puts reading in the ballpark, user can add additional correction
+}
 
 void RFM69::rcCalibration()
 {

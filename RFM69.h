@@ -28,7 +28,7 @@
 
 #include <stdint.h>
 
-#define RF69_MAX_DATA_LEN       61 // to take advantage of the built in AES/CRC we want to limit the frame size to the internal FIFO size (66 bytes - 3 bytes overhead - 2 bytes crc)
+#define RF69_MAX_DATA_LEN       61 // to take advantage of the built in AES/CRC we want to limit the frame size to the internal FIFO size (66 bytes - 2 bytes overhead - 2 bytes crc)
 
 #define CSMA_LIMIT              -90 // upper RX signal sensitivity threshold in dBm for carrier sense access
 #define RF69_MODE_SLEEP         0 // XTAL OFF
@@ -59,7 +59,6 @@ typedef struct {
 	int16_t rssi;
 	uint8_t from;
 	uint8_t size;
-	uint8_t ctl;
 } RfmPacket;
 
 class RFM69 {

@@ -49,7 +49,7 @@
 #define RF69_FSTEP 61.03515625 // == FXOSC / 2^19 = 32MHz / 2^19 (p13 in datasheet)
 
 typedef void (*spiTransferFunction)(uint8_t *data, uint8_t len);
-typedef uint32_t (*getTimeFunction)();
+typedef unsigned long (*getTimeFunction)();
 typedef struct
 {
   uint8_t data[RF69_MAX_DATA_LEN];

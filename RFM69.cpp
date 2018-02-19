@@ -25,17 +25,16 @@
 // **********************************************************************************
 #include "RFM69.h"
 #include "RFM69registers.h"
-#include <SPI.h>
 #include <string.h>
 
-volatile uint8_t RFM69::DATA[RF69_MAX_DATA_LEN];
-volatile uint8_t RFM69::_mode;        // current transceiver state
-volatile uint8_t RFM69::DATALEN;
-volatile uint8_t RFM69::SENDERID;
-volatile uint8_t RFM69::TARGETID;     // should match _address
-volatile uint8_t RFM69::PAYLOADLEN;
-volatile int16_t RFM69::RSSI;          // most accurate RSSI during reception (closest to the reception)
-RFM69* RFM69::selfPointer = NULL;
+uint32_t millis();
+
+RFM69::RFM69(spiTransferFunction spiTransfer, bool isRFM69HW)
+	:_spiTransfer(spiTransfer), _isRFM69HW(isRFM69HW)
+{
+  _mode = RF69_MODE_STANDBY;
+  _powerLevel = 31;
+}
 
 bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID)
 {
@@ -94,15 +93,14 @@ bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID)
   // Disable it during initialization so we always start from a known state.
   encrypt(0);
 
-  setHighPower(_isRFM69HW); // called regardless if it's a RFM69W or RFM69HW
+  setHighPower(); // called regardless if it's a RFM69W or RFM69HW
   setMode(RF69_MODE_STANDBY);
   start = millis();
-  while (((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00) && millis()-start < timeout); // wait for ModeReady
+  while (!isModeReady() && millis()-start < timeout); // wait for ModeReady
   if (millis()-start >= timeout)
     return false;
 
   _address = nodeID;
-  selfPointer = this;
   return true;
 }
 
@@ -136,21 +134,21 @@ void RFM69::setMode(uint8_t newMode)
 
   switch (newMode) {
     case RF69_MODE_TX:
-      writeReg(REG_OPMODE, (readReg(REG_OPMODE) & 0xE3) | RF_OPMODE_TRANSMITTER);
+      updateReg(REG_OPMODE, 0xE3, RF_OPMODE_TRANSMITTER);
       if (_isRFM69HW) setHighPowerRegs(true);
       break;
     case RF69_MODE_RX:
-      writeReg(REG_OPMODE, (readReg(REG_OPMODE) & 0xE3) | RF_OPMODE_RECEIVER);
+      updateReg(REG_OPMODE, 0xE3, RF_OPMODE_RECEIVER);
       if (_isRFM69HW) setHighPowerRegs(false);
       break;
     case RF69_MODE_SYNTH:
-      writeReg(REG_OPMODE, (readReg(REG_OPMODE) & 0xE3) | RF_OPMODE_SYNTHESIZER);
+      updateReg(REG_OPMODE, 0xE3, RF_OPMODE_SYNTHESIZER);
       break;
     case RF69_MODE_STANDBY:
-      writeReg(REG_OPMODE, (readReg(REG_OPMODE) & 0xE3) | RF_OPMODE_STANDBY);
+      updateReg(REG_OPMODE, 0xE3, RF_OPMODE_STANDBY);
       break;
     case RF69_MODE_SLEEP:
-      writeReg(REG_OPMODE, (readReg(REG_OPMODE) & 0xE3) | RF_OPMODE_SLEEP);
+      updateReg(REG_OPMODE, 0xE3, RF_OPMODE_SLEEP);
       break;
     default:
       return;
@@ -158,7 +156,7 @@ void RFM69::setMode(uint8_t newMode)
 
   // we are using packet mode, so this check is not really needed
   // but waiting for mode ready is necessary when going from sleep because the FIFO may not be immediately available from previous mode
-  while (_mode == RF69_MODE_SLEEP && (readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00); // wait for ModeReady
+  while (_mode == RF69_MODE_SLEEP && !isModeReady()); // wait for ModeReady
 
   _mode = newMode;
 }
@@ -179,12 +177,12 @@ void RFM69::setPowerLevel(uint8_t powerLevel)
 {
   _powerLevel = (powerLevel > 31 ? 31 : powerLevel);
   if (_isRFM69HW) _powerLevel /= 2;
-  writeReg(REG_PALEVEL, (readReg(REG_PALEVEL) & 0xE0) | _powerLevel);
+  updateReg(REG_PALEVEL, 0xE0, _powerLevel);
 }
 
 bool RFM69::canSend()
 {
-  if (_mode == RF69_MODE_RX && PAYLOADLEN == 0 && readRSSI() < CSMA_LIMIT) // if signal stronger than -100dBm is detected assume channel activity
+  if (_mode == RF69_MODE_RX && readRSSI() < CSMA_LIMIT) // if signal stronger than -100dBm is detected assume channel activity
   {
     setMode(RF69_MODE_STANDBY);
     return true;
@@ -194,9 +192,11 @@ bool RFM69::canSend()
 
 void RFM69::send(uint8_t toAddress, const uint8_t* buffer, uint8_t bufferSize)
 {
-  writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFB) | RF_PACKET2_RXRESTART); // avoid RX deadlocks
+  updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
   uint32_t now = millis();
-  while (!canSend() && millis() - now < RF69_CSMA_LIMIT_MS) receiveDone();
+  while (!canSend() && millis() - now < RF69_CSMA_LIMIT_MS) {
+	  // wait until the channel is silent
+  }
   sendFrame(toAddress, buffer, bufferSize);
 }
 
@@ -204,7 +204,7 @@ void RFM69::send(uint8_t toAddress, const uint8_t* buffer, uint8_t bufferSize)
 void RFM69::sendFrame(uint8_t toAddress, const uint8_t* buffer, const uint8_t bufferSize)
 {
   setMode(RF69_MODE_STANDBY); // turn off receiver to prevent reception while filling fifo
-  while ((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0x00); // wait for ModeReady
+  while (!isModeReady()); // wait for ModeReady
   writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_00); // DIO0 is "Packet Sent"
   if (bufferSize > RF69_MAX_DATA_LEN) return;
 
@@ -219,74 +219,49 @@ void RFM69::sendFrame(uint8_t toAddress, const uint8_t* buffer, const uint8_t bu
   data[3] = _address;
   data[4] = CTLbyte;
   memcpy(&data[5], buffer, bufferSize);
-  spi_Transfer(data, sizeof(data));
+  _spiTransfer(data, sizeof(data));
 
+  _packetSent = false;
   // no need to wait for transmit mode to be ready since its handled by the radio
   setMode(RF69_MODE_TX);
   uint32_t txStart = millis();
-  while ((PTD_BASE_PTR->PDIR & (1 << 4)) == 0 && millis() - txStart < RF69_TX_LIMIT_MS); // wait for DIO0 to turn HIGH signalling transmission finish
-  //while (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PACKETSENT == 0x00); // wait for ModeReady
-  setMode(RF69_MODE_STANDBY);
+  while (!_packetSent && millis() - txStart < RF69_TX_LIMIT_MS); // wait for DIO0 to turn HIGH signalling transmission finish
+  setMode(RF69_MODE_RX);
 }
 
-// internal function - interrupt gets called when a packet is received
-void RFM69::interruptHandler() {
-  //pinMode(4, OUTPUT);
-  //digitalWrite(4, 1);
-  if (_mode == RF69_MODE_RX && (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY))
+void RFM69::interrupt(RfmPacket &packet) {
+  uint8_t irqFlags = readReg(REG_IRQFLAGS2);
+  
+  if (_mode == RF69_MODE_RX && (irqFlags & RF_IRQFLAGS2_PAYLOADREADY))
   {
     //RSSI = readRSSI();
     setMode(RF69_MODE_STANDBY);
     uint8_t header[5] = { REG_FIFO & 0x7F };
-    spi_Transfer(header, sizeof(header));
+    _spiTransfer(header, sizeof(header));
 
-    PAYLOADLEN = header[1];
-    PAYLOADLEN = PAYLOADLEN > 66 ? 66 : PAYLOADLEN; // precaution
-    TARGETID = header[2];
-    DATALEN = PAYLOADLEN - 3;
-    SENDERID = header[3];
-    uint8_t CTLbyte = header[4];
-
-    DATA[0] = REG_FIFO & 0x7F;
-    spi_Transfer((uint8_t*)DATA, DATALEN + 1);
-    for (uint8_t i=0;i<DATALEN;i++) DATA[i] = DATA[i+1];
-    if (DATALEN < RF69_MAX_DATA_LEN) DATA[DATALEN] = 0; // add null at end of string
+    uint8_t payloadLength = header[1];
+    if (payloadLength > 66) payloadLength = 66;
+    //uint8_t target = header[2];
+    packet.size = payloadLength - 3;
+    packet.from = header[3];
+    packet.ctl = header[4];
+    
+    packet.data[0] = REG_FIFO & 0x7F;
+    _spiTransfer(packet.data, packet.size + 1);
+    for (uint8_t i=0;i<packet.size;i++) packet.data[i] = packet.data[i+1];
     setMode(RF69_MODE_RX);
+    packet.rssi = readRSSI();
+  } else if (_mode == RF69_MODE_TX && (irqFlags & RF_IRQFLAGS2_PACKETSENT)) {
+	  _packetSent = true;
   }
-  RSSI = readRSSI();
-  //digitalWrite(4, 0);
 }
-
-void RFM69::interrupt() { if (selfPointer) selfPointer->interruptHandler(); }
 
 // internal function
 void RFM69::receiveBegin() {
-  DATALEN = 0;
-  SENDERID = 0;
-  TARGETID = 0;
-  PAYLOADLEN = 0;
-  RSSI = 0;
   if (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY)
-    writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFB) | RF_PACKET2_RXRESTART); // avoid RX deadlocks
+    updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
   writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01); // set DIO0 to "PAYLOADREADY" in receive mode
   setMode(RF69_MODE_RX);
-}
-
-// checks if a packet was received and/or puts transceiver in receive (ie RX or listen) mode
-bool RFM69::receiveDone() {
-  if (_mode == RF69_MODE_RX && PAYLOADLEN > 0)
-  {
-    setMode(RF69_MODE_STANDBY); // enables interrupts
-    return true;
-  }
-  else if (_mode == RF69_MODE_RX) // already in RX no payload yet
-  {
-    return false;
-  }
-  else {
-    receiveBegin();
-    return false;
-  }
 }
 
 // To enable encryption: radio.encrypt("ABCDEFGHIJKLMNOP");
@@ -298,9 +273,9 @@ void RFM69::encrypt(const char* key) {
   {
 	uint8_t rfmKey[17] = {REG_AESKEY1 | 0x80};
 	memcpy(&rfmKey[1], key, 16);
-	spi_Transfer(rfmKey, sizeof(rfmKey));
+	_spiTransfer(rfmKey, sizeof(rfmKey));
   }
-  writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFE) | (key ? 1 : 0));
+  updateReg(REG_PACKETCONFIG2, 0xFE, (key ? 1 : 0));
 }
 
 // get the received signal strength indicator (RSSI)
@@ -320,29 +295,27 @@ int16_t RFM69::readRSSI(bool forceTrigger) {
 uint8_t RFM69::readReg(uint8_t addr)
 {
   uint8_t rd[] = {(uint8_t)(addr & 0x7F), 0};
-  spi_Transfer(rd, sizeof(rd));
+  _spiTransfer(rd, sizeof(rd));
   return rd[1];
 }
 
 void RFM69::writeReg(uint8_t addr, uint8_t value)
 {
   uint8_t wr[] = {(uint8_t)(addr | 0x80), value};
-  spi_Transfer(wr, sizeof(wr));
+  _spiTransfer(wr, sizeof(wr));
 }
 
-// true  = disable filtering to capture all frames on network
-// false = enable node/broadcast filtering to capture only frames sent to this/broadcast address
-void RFM69::promiscuous(bool onOff) {
-  _promiscuousMode = onOff;
-  //writeReg(REG_PACKETCONFIG1, (readReg(REG_PACKETCONFIG1) & 0xF9) | (onOff ? RF_PACKET1_ADRSFILTERING_OFF : RF_PACKET1_ADRSFILTERING_NODEBROADCAST));
+void RFM69::updateReg(uint8_t addr, uint8_t mask, uint8_t flags) 
+{
+  uint8_t read = readReg(addr) & mask;
+  writeReg(addr, read | flags);
 }
 
 // for RFM69HW only: you must call setHighPower(true) after initialize() or else transmission won't work
-void RFM69::setHighPower(bool onOff) {
-  _isRFM69HW = onOff;
+void RFM69::setHighPower() {
   writeReg(REG_OCP, _isRFM69HW ? RF_OCP_OFF : RF_OCP_ON);
   if (_isRFM69HW) // turning ON
-    writeReg(REG_PALEVEL, (readReg(REG_PALEVEL) & 0x1F) | RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON); // enable P1 & P2 amplifier stages
+    updateReg(REG_PALEVEL, 0x1F, RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON); // enable P1 & P2 amplifier stages
   else
     writeReg(REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | _powerLevel); // enable P0 only
 }
@@ -352,20 +325,6 @@ void RFM69::setHighPowerRegs(bool onOff) {
   writeReg(REG_TESTPA1, onOff ? 0x5D : 0x55);
   writeReg(REG_TESTPA2, onOff ? 0x7C : 0x70);
 }
-//for debugging
-#define REGISTER_DETAIL 0
-#if REGISTER_DETAIL
-// SERIAL PRINT
-// replace Serial.print("string") with SerialPrint("string")
-#define SerialPrint(x) SerialPrint_P(PSTR(x))
-void SerialWrite ( uint8_t c ) {
-    Serial.write ( c );
-}
-
-void SerialPrint_P(PGM_P str, void (*f)(uint8_t) = SerialWrite ) {
-  for (uint8_t c; (c = pgm_read_byte(str)); str++) (*f)(c);
-}
-#endif
 
 uint8_t RFM69::readTemperature(uint8_t calFactor) // returns centigrade
 {
@@ -379,4 +338,8 @@ void RFM69::rcCalibration()
 {
   writeReg(REG_OSC1, RF_OSC1_RCCAL_START);
   while ((readReg(REG_OSC1) & RF_OSC1_RCCAL_DONE) == 0x00);
+}
+
+inline bool RFM69::isModeReady() { 
+	return (readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) != 0; 
 }

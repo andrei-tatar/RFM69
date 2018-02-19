@@ -43,7 +43,6 @@
 #define RF69_868MHZ            86
 #define RF69_915MHZ            91
 
-#define null                  0
 #define COURSE_TEMP_COEF    -90 // puts the temperature reading in the ballpark, user can fine tune the returned value
 #define RF69_BROADCAST_ADDR 255
 #define RF69_CSMA_LIMIT_MS 1000
@@ -54,62 +53,53 @@
 #define RFM69_CTL_SENDACK   0x80
 #define RFM69_CTL_REQACK    0x40
 
+typedef void (*spiTransferFunction)(uint8_t* data, uint8_t len);
+typedef struct {
+	uint8_t data[RF69_MAX_DATA_LEN];
+	int16_t rssi;
+	uint8_t from;
+	uint8_t size;
+	uint8_t ctl;
+} RfmPacket;
+
 class RFM69 {
   public:
-    static volatile uint8_t DATA[RF69_MAX_DATA_LEN]; // recv/xmit buf, including header & crc bytes
-    static volatile uint8_t DATALEN;
-    static volatile uint8_t SENDERID;
-    static volatile uint8_t TARGETID; // should match _address
-    static volatile uint8_t PAYLOADLEN;
-    static volatile int16_t RSSI; // most accurate RSSI during reception (closest to the reception)
-    static volatile uint8_t _mode; // should be protected?
-
-    RFM69(bool isRFM69HW=false) {
-      _mode = RF69_MODE_STANDBY;
-      _promiscuousMode = false;
-      _powerLevel = 31;
-      _isRFM69HW = isRFM69HW;
-    }
-
+    RFM69(spiTransferFunction spiTransfer, bool isRFM69HW=false);
     bool initialize(uint8_t freqBand, uint8_t ID, uint8_t networkID=1);
+    
     bool canSend();
-    virtual void send(uint8_t toAddress, const uint8_t* buffer, uint8_t bufferSize);
-    virtual bool receiveDone();
+    void send(uint8_t toAddress, const uint8_t* buffer, uint8_t bufferSize);
     uint32_t getFrequency();
     void setFrequency(uint32_t freqHz);
     void encrypt(const char* key);
     int16_t readRSSI(bool forceTrigger=false);
     void promiscuous(bool onOff=true);
-    virtual void setHighPower(bool onOFF=true); // has to be called after initialize() for RFM69HW
-    virtual void setPowerLevel(uint8_t level); // reduce/increase transmit power level
+    void setPowerLevel(uint8_t level); // reduce/increase transmit power level
     void sleep();
     uint8_t readTemperature(uint8_t calFactor=0); // get CMOS temperature (8bit)
     void rcCalibration(); // calibrate the internal RC oscillator for use in wide temperature variations - see datasheet section [4.3.5. RC Timer Accuracy]
+       
+    void interrupt(RfmPacket &packet);
 
-    // allow hacking registers by making these public
+  private:
+    inline bool isModeReady();
+    void setHighPower();
+    void receiveBegin();
+	void setMode(uint8_t mode);
+	void setHighPowerRegs(bool onOff);
+    void sendFrame(uint8_t toAddress, const uint8_t* buffer, uint8_t size);
     uint8_t readReg(uint8_t addr);
     void writeReg(uint8_t addr, uint8_t val);
-        
-    static void interrupt();
+    void updateReg(uint8_t addr, uint8_t mask, uint8_t flags); 
 
-  protected:
-    void virtual interruptHandler();
-    virtual void sendFrame(uint8_t toAddress, const uint8_t* buffer, uint8_t size);
-
-    static RFM69* selfPointer;
+    const spiTransferFunction _spiTransfer;
+    const bool _isRFM69HW;
+    
     uint8_t _address;
-    bool _promiscuousMode;
     uint8_t _powerLevel;
-    bool _isRFM69HW;
-#if defined (SPCR) && defined (SPSR)
-    uint8_t _SPCR;
-    uint8_t _SPSR;
-#endif
-
-    virtual void receiveBegin();
-    virtual void setMode(uint8_t mode);
-    virtual void setHighPowerRegs(bool onOff);
-    inline void maybeInterrupts();
+    
+    volatile bool _packetSent;
+    volatile uint8_t _mode; // should be protected?
 };
 
 #endif

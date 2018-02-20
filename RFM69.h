@@ -30,7 +30,7 @@
 
 #define RF69_MAX_DATA_LEN 61 // to take advantage of the built in AES/CRC we want to limit the frame size to the internal FIFO size (66 bytes - 2 bytes overhead - 2 bytes crc)
 
-#define CSMA_LIMIT -90      // upper RX signal sensitivity threshold in dBm for carrier sense access
+#define CSMA_LIMIT 180      // upper RX signal sensitivity threshold (for dBm: -x/2; eg: 180 = -90dBM)
 #define RF69_MODE_SLEEP 0   // XTAL OFF
 #define RF69_MODE_STANDBY 1 // XTAL ON
 #define RF69_MODE_SYNTH 2   // PLL ON
@@ -53,7 +53,7 @@ typedef unsigned long (*getTimeFunction)();
 typedef struct
 {
   uint8_t data[RF69_MAX_DATA_LEN];
-  int16_t rssi;
+  uint8_t rssi;
   uint8_t from;
   uint8_t size;
 } RfmPacket;
@@ -69,7 +69,7 @@ public:
   uint32_t getFrequency();
   void setFrequency(uint32_t freqHz);
   void encrypt(const char *key);
-  int16_t readRSSI(bool forceTrigger = false);
+  uint8_t readRSSI(bool forceTrigger = false);
   void promiscuous(bool onOff = true);
   void setPowerLevel(uint8_t level); // reduce/increase transmit power level
   void sleep();

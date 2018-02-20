@@ -192,7 +192,7 @@ void RFM69::setPowerLevel(uint8_t powerLevel)
 
 bool RFM69::canSend()
 {
-  if (_mode == RF69_MODE_RX && readRSSI() < CSMA_LIMIT) // if signal stronger than -100dBm is detected assume channel activity
+  if (_mode == RF69_MODE_RX && readRSSI() > CSMA_LIMIT) // if signal low assume channel activity
   {
     setMode(RF69_MODE_STANDBY);
     return true;
@@ -294,9 +294,9 @@ void RFM69::encrypt(const char *key)
 }
 
 // get the received signal strength indicator (RSSI)
-int16_t RFM69::readRSSI(bool forceTrigger)
+uint8_t RFM69::readRSSI(bool forceTrigger)
 {
-  int16_t rssi = 0;
+  uint8_t rssi = 0;
   if (forceTrigger)
   {
     // RSSI trigger not needed if DAGC is in continuous mode
@@ -304,9 +304,7 @@ int16_t RFM69::readRSSI(bool forceTrigger)
     while ((readReg(REG_RSSICONFIG) & RF_RSSI_DONE) == 0x00)
       ; // wait for RSSI_Ready
   }
-  rssi = -readReg(REG_RSSIVALUE);
-  rssi >>= 1;
-  return rssi;
+  return readReg(REG_RSSIVALUE);
 }
 
 uint8_t RFM69::readReg(uint8_t addr)

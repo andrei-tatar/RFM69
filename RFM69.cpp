@@ -103,7 +103,6 @@ bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID)
     return false;
 
   _address = nodeID;
-  receiveBegin();
   return true;
 }
 
@@ -235,9 +234,10 @@ void RFM69::sendFrame(uint8_t toAddress, const uint8_t *buffer, const uint8_t bu
   // no need to wait for transmit mode to be ready since its handled by the radio
   setMode(RF69_MODE_TX);
   uint32_t txStart = _getTime();
-  while (!_packetSent && _getTime() - txStart < RF69_TX_LIMIT_MS)
-    ; // wait for DIO0 to turn HIGH signalling transmission finish
-  setMode(RF69_MODE_RX);
+  while (!_packetSent && _getTime() - txStart < RF69_TX_LIMIT_MS) {
+    // wait for DIO0 to turn HIGH signalling transmission finish
+  }
+  setMode(RF69_MODE_STANDBY);
 }
 
 void RFM69::interrupt(RfmPacket &packet)
@@ -261,7 +261,6 @@ void RFM69::interrupt(RfmPacket &packet)
     _spiTransfer(packet.data, packet.size + 1);
     for (uint8_t i = 0; i < packet.size; i++)
       packet.data[i] = packet.data[i + 1];
-    setMode(RF69_MODE_RX);
   }
   else if (_mode == RF69_MODE_TX && (irqFlags & RF_IRQFLAGS2_PACKETSENT))
   {
@@ -271,7 +270,6 @@ void RFM69::interrupt(RfmPacket &packet)
   packet.rssi = readRSSI();
 }
 
-// internal function
 void RFM69::receiveBegin()
 {
   if (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY)

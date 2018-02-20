@@ -77,11 +77,11 @@ public:
   void rcCalibration();                           // calibrate the internal RC oscillator for use in wide temperature variations - see datasheet section [4.3.5. RC Timer Accuracy]
 
   void interrupt(RfmPacket &packet);
+  void receiveBegin();
 
 private:
   inline bool isModeReady();
   void setHighPower();
-  void receiveBegin();
   void setMode(uint8_t mode);
   void setHighPowerRegs(bool onOff);
   void sendFrame(uint8_t toAddress, const uint8_t *buffer, uint8_t size);

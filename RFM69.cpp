@@ -296,7 +296,6 @@ void RFM69::encrypt(const char *key)
 // get the received signal strength indicator (RSSI)
 uint8_t RFM69::readRSSI(bool forceTrigger)
 {
-  uint8_t rssi = 0;
   if (forceTrigger)
   {
     // RSSI trigger not needed if DAGC is in continuous mode

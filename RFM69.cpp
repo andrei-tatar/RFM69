@@ -95,13 +95,7 @@ bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID)
   encrypt(0);
 
   setHighPower(); // called regardless if it's a RFM69W or RFM69HW
-  setMode(RF69_MODE_STANDBY);
-  start = _getTime();
-  while (!isModeReady() && _getTime() - start < timeout)
-    ; // wait for ModeReady
-  if (_getTime() - start >= timeout)
-    return false;
-
+  setMode(RF69_MODE_RX);
   _address = nodeID;
   return true;
 }
@@ -163,8 +157,10 @@ void RFM69::setMode(uint8_t newMode)
 
   // we are using packet mode, so this check is not really needed
   // but waiting for mode ready is necessary when going from sleep because the FIFO may not be immediately available from previous mode
-  while (_mode == RF69_MODE_SLEEP && !isModeReady())
-    ; // wait for ModeReady
+  while (/*_mode == RF69_MODE_SLEEP &&*/ !isModeReady())
+  {
+    // wait for ModeReady
+  }
 
   _mode = newMode;
 }
@@ -190,36 +186,18 @@ void RFM69::setPowerLevel(uint8_t powerLevel)
   updateReg(REG_PALEVEL, 0xE0, _powerLevel);
 }
 
-bool RFM69::canSend()
-{
-  if (_mode == RF69_MODE_RX && readRSSI() > CSMA_LIMIT) // if signal low assume channel activity
-  {
-    setMode(RF69_MODE_STANDBY);
-    return true;
-  }
-  return false;
-}
-
 void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
 {
-  updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
-  uint32_t now = _getTime();
-  while (!canSend() && _getTime() - now < RF69_CSMA_LIMIT_MS)
-  {
-    // wait until the channel is silent
-  }
-  sendFrame(toAddress, buffer, bufferSize);
-}
-
-// internal function
-void RFM69::sendFrame(uint8_t toAddress, const uint8_t *buffer, const uint8_t bufferSize)
-{
-  setMode(RF69_MODE_STANDBY); // turn off receiver to prevent reception while filling fifo
-  while (!isModeReady())
-    ;                                                // wait for ModeReady
-  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_00); // DIO0 is "Packet Sent"
   if (bufferSize > RF69_MAX_DATA_LEN)
     return;
+
+  updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
+  setMode(RF69_MODE_STANDBY);                               // turn off receiver to prevent reception while filling fifo
+  while (!isModeReady())
+  {
+    // wait for ModeReady
+  }
+  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_00); // DIO0 is "Packet Sent"
 
   // write to FIFO
   uint8_t data[4 + bufferSize];
@@ -233,11 +211,15 @@ void RFM69::sendFrame(uint8_t toAddress, const uint8_t *buffer, const uint8_t bu
   _packetSent = false;
   // no need to wait for transmit mode to be ready since its handled by the radio
   setMode(RF69_MODE_TX);
+
   uint32_t txStart = _getTime();
-  while (!_packetSent && _getTime() - txStart < RF69_TX_LIMIT_MS) {
+  while (!_packetSent && _getTime() - txStart < RF69_TX_LIMIT_MS)
+  {
     // wait for DIO0 to turn HIGH signalling transmission finish
   }
-  setMode(RF69_MODE_STANDBY);
+
+  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01); // set DIO0 to "PAYLOADREADY" in receive mode
+  setMode(RF69_MODE_RX);
 }
 
 void RFM69::interrupt(RfmPacket &packet)
@@ -261,21 +243,14 @@ void RFM69::interrupt(RfmPacket &packet)
     _spiTransfer(packet.data, packet.size + 1);
     for (uint8_t i = 0; i < packet.size; i++)
       packet.data[i] = packet.data[i + 1];
+    packet.rssi = readRSSI();
+
+    setMode(RF69_MODE_RX);
   }
   else if (_mode == RF69_MODE_TX && (irqFlags & RF_IRQFLAGS2_PACKETSENT))
   {
     _packetSent = true;
   }
-
-  packet.rssi = readRSSI();
-}
-
-void RFM69::receiveBegin()
-{
-  if (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY)
-    updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
-  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01);          // set DIO0 to "PAYLOADREADY" in receive mode
-  setMode(RF69_MODE_RX);
 }
 
 // To enable encryption: radio.encrypt("ABCDEFGHIJKLMNOP");

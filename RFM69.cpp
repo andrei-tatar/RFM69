@@ -256,7 +256,7 @@ void RFM69::interrupt(RfmPacket &packet)
 // To enable encryption: radio.encrypt("ABCDEFGHIJKLMNOP");
 // To disable encryption: radio.encrypt(null) or radio.encrypt(0)
 // KEY HAS TO BE 16 bytes !!!
-void RFM69::encrypt(const char *key)
+void RFM69::encrypt(const uint8_t *key)
 {
   setMode(RF69_MODE_STANDBY);
   if (key != 0)
@@ -336,4 +336,9 @@ void RFM69::rcCalibration()
 inline bool RFM69::isModeReady()
 {
   return (readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) != 0;
+}
+
+void RFM69::setNetwork(uint8_t networkID)
+{
+  writeReg(REG_SYNCVALUE2, networkID);
 }

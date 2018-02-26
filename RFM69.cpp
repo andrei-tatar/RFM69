@@ -259,13 +259,14 @@ void RFM69::interrupt(RfmPacket &packet)
 void RFM69::encrypt(const uint8_t *key)
 {
   setMode(RF69_MODE_STANDBY);
-  if (key != 0)
+  if (key != NULL)
   {
     uint8_t rfmKey[17] = {REG_AESKEY1 | 0x80};
     memcpy(&rfmKey[1], key, 16);
     _spiTransfer(rfmKey, sizeof(rfmKey));
   }
-  updateReg(REG_PACKETCONFIG2, 0xFE, (key ? 1 : 0));
+  updateReg(REG_PACKETCONFIG2, 0xFE, key != NULL ? 1 : 0);
+  setMode(RF69_MODE_RX);
 }
 
 // get the received signal strength indicator (RSSI)

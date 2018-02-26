@@ -61,7 +61,7 @@ typedef struct
 class RFM69
 {
 public:
-  RFM69(spiTransferFunction spiTransfer, getTimeFunction getTime, bool isRFM69HW = false);
+  RFM69(spiTransferFunction spiTransfer, getTimeFunction getTime, bool isRFM69HW = true);
   bool initialize(uint8_t freqBand, uint8_t ID, uint8_t networkID = 1);
 
   bool canSend();
@@ -96,7 +96,7 @@ private:
   uint8_t _powerLevel;
 
   volatile bool _packetSent;
-  volatile uint8_t _mode; // should be protected?
+  volatile uint8_t _mode = 0xFF; // should be protected?
 };
 
 #endif

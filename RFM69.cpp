@@ -193,11 +193,6 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
 
   updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
   setMode(RF69_MODE_STANDBY);                               // turn off receiver to prevent reception while filling fifo
-  while (!isModeReady())
-  {
-    // wait for ModeReady
-  }
-  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_00); // DIO0 is "Packet Sent"
 
   // write to FIFO
   uint8_t data[4 + bufferSize];
@@ -209,7 +204,8 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
   _spiTransfer(data, sizeof(data));
 
   _packetSent = false;
-  // no need to wait for transmit mode to be ready since its handled by the radio
+
+  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_00); // DIO0 is "Packet Sent"
   setMode(RF69_MODE_TX);
 
   uint32_t txStart = _getTime();

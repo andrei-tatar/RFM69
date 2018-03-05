@@ -197,7 +197,7 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
   // write to FIFO
   uint8_t data[4 + bufferSize];
   data[0] = REG_FIFO | 0x80;
-  data[1] = bufferSize + 3;
+  data[1] = bufferSize + 2;
   data[2] = toAddress;
   data[3] = _address;
   memcpy(&data[4], buffer, bufferSize);
@@ -231,8 +231,7 @@ void RFM69::interrupt(RfmPacket &packet)
     uint8_t payloadLength = header[1];
     if (payloadLength > 66)
       payloadLength = 66;
-    //uint8_t target = header[2];
-    packet.size = payloadLength - 3;
+    packet.size = payloadLength - 2;
     packet.from = header[3];
 
     packet.data[0] = REG_FIFO & 0x7F;

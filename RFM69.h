@@ -28,7 +28,7 @@
 
 #include <stdint.h>
 
-#define RF69_MAX_DATA_LEN 61 // to take advantage of the built in AES/CRC we want to limit the frame size to the internal FIFO size (66 bytes - 2 bytes overhead - 2 bytes crc)
+#define RF69_MAX_DATA_LEN 62 // to take advantage of the built in AES/CRC we want to limit the frame size to the internal FIFO size (66 bytes - 2 bytes overhead - 2 bytes crc)
 
 #define CSMA_LIMIT 180      // upper RX signal sensitivity threshold (for dBm: -x/2; eg: 180 = -90dBM)
 #define RF69_MODE_SLEEP 0   // XTAL OFF
@@ -52,7 +52,7 @@ typedef void (*spiTransferFunction)(uint8_t *data, uint8_t len);
 typedef unsigned long (*getTimeFunction)();
 typedef struct
 {
-  uint8_t data[RF69_MAX_DATA_LEN];
+  uint8_t data[RF69_MAX_DATA_LEN+1];
   uint8_t rssi;
   uint8_t from;
   uint8_t size;

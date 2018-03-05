@@ -235,6 +235,7 @@ void RFM69::interrupt(RfmPacket &packet)
       return;
     }
     packet.size = payloadLength - 2;
+    if (packet.size > RF69_MAX_DATA_LEN) packet.size = RF69_MAX_DATA_LEN;
     packet.from = header[3];
 
     packet.data[0] = REG_FIFO & 0x7F;

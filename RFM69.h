@@ -75,7 +75,7 @@ public:
   void sleep();
   uint8_t readTemperature(uint8_t calFactor = 0); // get CMOS temperature (8bit)
   void rcCalibration();                           // calibrate the internal RC oscillator for use in wide temperature variations - see datasheet section [4.3.5. RC Timer Accuracy]
-  void interrupt(RfmPacket &packet);
+  bool receive(RfmPacket &packet);
   void setNetwork(uint8_t networkID);
   
 private:
@@ -95,7 +95,6 @@ private:
   uint8_t _address;
   uint8_t _powerLevel;
 
-  volatile bool _packetSent;
   volatile uint8_t _mode = 0xFF; // should be protected?
 };
 

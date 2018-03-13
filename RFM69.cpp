@@ -69,8 +69,8 @@ bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID)
           /* 0x2F */ {REG_SYNCVALUE1, 0x2D},      // attempt to make this compatible with sync1 byte of RFM12B lib
           /* 0x30 */ {REG_SYNCVALUE2, networkID}, // NETWORK ID
           /* 0x37 */ {REG_PACKETCONFIG1, RF_PACKET1_FORMAT_VARIABLE | RF_PACKET1_DCFREE_OFF | RF_PACKET1_CRC_ON | RF_PACKET1_CRCAUTOCLEAR_ON | RF_PACKET1_ADRSFILTERING_OFF},
-          /* 0x38 */ {REG_PAYLOADLENGTH, 66}, // in variable length mode: the max frame size, not used in TX
-          // /* 0x39 */ {REG_NODEADRS, nodeID},
+          /* 0x38 */ {REG_PAYLOADLENGTH, 66},                                                                                 // in variable length mode: the max frame size, not used in TX
+                                                                                                                              // /* 0x39 */ {REG_NODEADRS, nodeID},
           /* 0x3C */ {REG_FIFOTHRESH, RF_FIFOTHRESH_TXSTART_FIFONOTEMPTY | RF_FIFOTHRESH_VALUE},                              // TX on FIFO not empty
           /* 0x3D */ {REG_PACKETCONFIG2, RF_PACKET2_RXRESTARTDELAY_2BITS | RF_PACKET2_AUTORXRESTART_ON | RF_PACKET2_AES_OFF}, // RXRESTARTDELAY must match transmitter PA ramp-down time (bitrate dependent)
                                                                                                                               //for BR-19200: /* 0x3D */ { REG_PACKETCONFIG2, RF_PACKET2_RXRESTARTDELAY_NONE | RF_PACKET2_AUTORXRESTART_ON | RF_PACKET2_AES_OFF }, // RXRESTARTDELAY must match transmitter PA ramp-down time (bitrate dependent)
@@ -150,16 +150,16 @@ void RFM69::setMode(uint8_t newMode)
     break;
   case RF69_MODE_SLEEP:
     updateReg(REG_OPMODE, 0xE3, RF_OPMODE_SLEEP);
+
+    // we are using packet mode, so this check is not really needed
+    // but waiting for mode ready is necessary when going from sleep because the FIFO may not be immediately available from previous mode
+    while (!isModeReady())
+    {
+      // wait for ModeReady
+    }
     break;
   default:
     return;
-  }
-
-  // we are using packet mode, so this check is not really needed
-  // but waiting for mode ready is necessary when going from sleep because the FIFO may not be immediately available from previous mode
-  while (/*_mode == RF69_MODE_SLEEP &&*/ !isModeReady())
-  {
-    // wait for ModeReady
   }
 
   _mode = newMode;
@@ -193,6 +193,10 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
 
   updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
   setMode(RF69_MODE_STANDBY);                               // turn off receiver to prevent reception while filling fifo
+  while (!isModeReady())
+  {
+    // wait for mode ready
+  }
 
   // write to FIFO
   uint8_t data[4 + bufferSize];
@@ -203,53 +207,44 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
   memcpy(&data[4], buffer, bufferSize);
   _spiTransfer(data, sizeof(data));
 
-  _packetSent = false;
-
-  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_00); // DIO0 is "Packet Sent"
   setMode(RF69_MODE_TX);
 
-  uint32_t txStart = _getTime();
-  while (!_packetSent && _getTime() - txStart < RF69_TX_LIMIT_MS)
+  while ((readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PACKETSENT) == 0)
   {
-    // wait for DIO0 to turn HIGH signalling transmission finish
+    // wait for transmission finish
   }
 
-  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01); // set DIO0 to "PAYLOADREADY" in receive mode
   setMode(RF69_MODE_RX);
 }
 
-void RFM69::interrupt(RfmPacket &packet)
+bool RFM69::receive(RfmPacket &packet)
 {
-  uint8_t irqFlags = readReg(REG_IRQFLAGS2);
+  if (_mode != RF69_MODE_RX || (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY) == 0)
+    return false;
 
-  if (_mode == RF69_MODE_RX && (irqFlags & RF_IRQFLAGS2_PAYLOADREADY))
+  setMode(RF69_MODE_STANDBY);
+  uint8_t header[4] = {REG_FIFO & 0x7F};
+  _spiTransfer(header, sizeof(header));
+
+  uint8_t payloadLength = header[1];
+  if (header[2] != _address)
   {
-    setMode(RF69_MODE_STANDBY);
-    uint8_t header[4] = {REG_FIFO & 0x7F};
-    _spiTransfer(header, sizeof(header));
-
-    uint8_t payloadLength = header[1];
-    if (header[2] != _address)
-    {
-      setMode(RF69_MODE_RX);
-      return;
-    }
-    packet.size = payloadLength - 2;
-    if (packet.size > RF69_MAX_DATA_LEN) packet.size = RF69_MAX_DATA_LEN;
-    packet.from = header[3];
-
-    packet.data[0] = REG_FIFO & 0x7F;
-    _spiTransfer(packet.data, packet.size + 1);
-    for (uint8_t i = 0; i < packet.size; i++)
-      packet.data[i] = packet.data[i + 1];
-    packet.rssi = readRSSI();
-
     setMode(RF69_MODE_RX);
+    return false;
   }
-  else if (_mode == RF69_MODE_TX && (irqFlags & RF_IRQFLAGS2_PACKETSENT))
-  {
-    _packetSent = true;
-  }
+  packet.size = payloadLength - 2;
+  if (packet.size > RF69_MAX_DATA_LEN)
+    packet.size = RF69_MAX_DATA_LEN;
+  packet.from = header[3];
+
+  packet.data[0] = REG_FIFO & 0x7F;
+  _spiTransfer(packet.data, packet.size + 1);
+  for (uint8_t i = 0; i < packet.size; i++)
+    packet.data[i] = packet.data[i + 1];
+  packet.rssi = readRSSI();
+
+  setMode(RF69_MODE_RX);
+  return true;
 }
 
 // To enable encryption: radio.encrypt("ABCDEFGHIJKLMNOP");
@@ -276,7 +271,9 @@ uint8_t RFM69::readRSSI(bool forceTrigger)
     // RSSI trigger not needed if DAGC is in continuous mode
     writeReg(REG_RSSICONFIG, RF_RSSI_START);
     while ((readReg(REG_RSSICONFIG) & RF_RSSI_DONE) == 0x00)
-      ; // wait for RSSI_Ready
+    {
+      // wait for RSSI_Ready
+    }
   }
   return readReg(REG_RSSIVALUE);
 }

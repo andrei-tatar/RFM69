@@ -61,8 +61,8 @@ typedef struct
 class RFM69
 {
 public:
-  RFM69(spiTransferFunction spiTransfer, getTimeFunction getTime, bool isRFM69HW = true);
-  bool initialize(uint8_t freqBand, uint8_t ID, uint8_t networkID = 1);
+  RFM69(spiTransferFunction spiTransfer, getTimeFunction getTime);
+  bool initialize(uint8_t freqBand, uint8_t ID, uint8_t networkID = 1, bool isRFM69HW = true);
 
   bool canSend();
   void send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize);
@@ -90,7 +90,7 @@ private:
 
   const spiTransferFunction _spiTransfer;
   const getTimeFunction _getTime;
-  const bool _isRFM69HW;
+  bool _isRFM69HW;
 
   uint8_t _address;
   uint8_t _powerLevel;

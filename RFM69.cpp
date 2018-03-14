@@ -27,15 +27,16 @@
 #include "RFM69registers.h"
 #include <string.h>
 
-RFM69::RFM69(spiTransferFunction spiTransfer, getTimeFunction getTime, bool isRFM69HW)
-    : _spiTransfer(spiTransfer), _getTime(getTime), _isRFM69HW(isRFM69HW)
+RFM69::RFM69(spiTransferFunction spiTransfer, getTimeFunction getTime)
+    : _spiTransfer(spiTransfer), _getTime(getTime)
 {
   _mode = RF69_MODE_STANDBY;
   _powerLevel = 31;
 }
 
-bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID)
+bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID, bool isRFM69HW)
 {
+  _isRFM69HW = isRFM69HW;
   const uint8_t CONFIG[][2] =
       {
           /* 0x01 */ {REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTEN_OFF | RF_OPMODE_STANDBY},

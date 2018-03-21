@@ -96,7 +96,7 @@ bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID, bool
   encrypt(0);
 
   setHighPower(); // called regardless if it's a RFM69W or RFM69HW
-  setPowerLevel(0);
+  setPowerLevel(15);
   
   setMode(RF69_MODE_RX);
   _address = nodeID;

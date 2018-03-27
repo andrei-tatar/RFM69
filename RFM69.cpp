@@ -97,7 +97,7 @@ bool RFM69::initialize(uint8_t freqBand, uint8_t nodeID, uint8_t networkID, bool
 
   setHighPower(); // called regardless if it's a RFM69W or RFM69HW
   setPowerLevel(15);
-  
+
   setMode(RF69_MODE_RX);
   _address = nodeID;
   return true;
@@ -172,6 +172,11 @@ void RFM69::setMode(uint8_t newMode)
 void RFM69::sleep()
 {
   setMode(RF69_MODE_SLEEP);
+}
+
+void RFM69::wake()
+{
+  setMode(RF69_MODE_RX);
 }
 
 // set *transmit/TX* output power: 0=min, 31=max

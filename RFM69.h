@@ -80,7 +80,7 @@ public:
   void setNetwork(uint8_t networkID);
   
 private:
-  inline bool isModeReady();
+  inline void waitModeReady();
   void setHighPower();
   void setMode(uint8_t mode);
   void setHighPowerRegs(bool onOff);

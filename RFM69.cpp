@@ -155,11 +155,9 @@ void RFM69::setMode(uint8_t newMode)
     updateReg(REG_OPMODE, 0xE3, RF_OPMODE_SLEEP);
 
     // we are using packet mode, so this check is not really needed
-    // but waiting for mode ready is necessary when going from sleep because the FIFO may not be immediately available from previous mode
-    while (!isModeReady())
-    {
-      // wait for ModeReady
-    }
+    // but waiting for mode ready is necessary when going from sleep because
+    // the FIFO may not be immediately available from previous mode
+    waitModeReady();
     break;
   default:
     return;
@@ -200,11 +198,9 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
     return;
 
   updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
+  writeReg(REG_IRQFLAGS2, RF_IRQFLAGS2_FIFOOVERRUN);        // clear any overrun flag
   setMode(RF69_MODE_STANDBY);                               // turn off receiver to prevent reception while filling fifo
-  while (!isModeReady())
-  {
-    // wait for mode ready
-  }
+  waitModeReady();
 
   // write to FIFO
   uint8_t data[4 + bufferSize];
@@ -215,6 +211,7 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
   memcpy(&data[4], buffer, bufferSize);
   _spiTransfer(data, sizeof(data));
 
+  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_10); // disable DIO0 in TX mode
   setMode(RF69_MODE_TX);
 
   while ((readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PACKETSENT) == 0)
@@ -222,13 +219,23 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
     // wait for transmission finish
   }
 
+  setMode(RF69_MODE_STANDBY);                        // standby before listening again
+  writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01); // reenable DIO0 as PayloadReady
   setMode(RF69_MODE_RX);
 }
 
 bool RFM69::receive(RfmPacket &packet)
 {
-  if (_mode != RF69_MODE_RX || (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY) == 0)
+  uint8_t flags = readReg(REG_IRQFLAGS2);
+  if (flags & RF_IRQFLAGS2_FIFOOVERRUN)
+  {
+    writeReg(REG_IRQFLAGS2, RF_IRQFLAGS2_FIFOOVERRUN); // clear the overrun flag
+  }
+
+  if (_mode != RF69_MODE_RX || (flags & RF_IRQFLAGS2_PAYLOADREADY) == 0)
+  {
     return false;
+  }
 
   setMode(RF69_MODE_STANDBY);
   uint8_t header[4] = {REG_FIFO & 0x7F};
@@ -237,6 +244,11 @@ bool RFM69::receive(RfmPacket &packet)
   uint8_t payloadLength = header[1];
   if (header[2] != _address)
   {
+    if (readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY)
+    {
+      writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFB) | RF_PACKET2_RXRESTART); // avoid RX deadlocks
+    }
+
     setMode(RF69_MODE_RX);
     return false;
   }
@@ -338,9 +350,11 @@ void RFM69::rcCalibration()
     ;
 }
 
-inline bool RFM69::isModeReady()
+inline void RFM69::waitModeReady()
 {
-  return (readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) != 0;
+  while ((readReg(REG_IRQFLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0)
+  {
+  }
 }
 
 void RFM69::setNetwork(uint8_t networkID)

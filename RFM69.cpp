@@ -153,15 +153,12 @@ void RFM69::setMode(uint8_t newMode)
     break;
   case RF69_MODE_SLEEP:
     updateReg(REG_OPMODE, 0xE3, RF_OPMODE_SLEEP);
-
-    // we are using packet mode, so this check is not really needed
-    // but waiting for mode ready is necessary when going from sleep because
-    // the FIFO may not be immediately available from previous mode
-    waitModeReady();
     break;
   default:
     return;
   }
+
+  waitModeReady();
 
   _mode = newMode;
 }
@@ -200,7 +197,6 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
   updateReg(REG_PACKETCONFIG2, 0xFB, RF_PACKET2_RXRESTART); // avoid RX deadlocks
   writeReg(REG_IRQFLAGS2, RF_IRQFLAGS2_FIFOOVERRUN);        // clear any overrun flag
   setMode(RF69_MODE_STANDBY);                               // turn off receiver to prevent reception while filling fifo
-  waitModeReady();
 
   // write to FIFO
   uint8_t data[4 + bufferSize];
@@ -213,8 +209,9 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
 
   writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_10); // disable DIO0 in TX mode
   setMode(RF69_MODE_TX);
+  uint32_t txStart = _getTime();
 
-  while ((readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PACKETSENT) == 0)
+  while ((readReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PACKETSENT) == 0 && _getTime() - txStart < 200)
   {
     // wait for transmission finish
   }
@@ -261,9 +258,9 @@ bool RFM69::receive(RfmPacket &packet)
   _spiTransfer(packet.data, packet.size + 1);
   for (uint8_t i = 0; i < packet.size; i++)
     packet.data[i] = packet.data[i + 1];
-  packet.rssi = readRSSI();
 
   setMode(RF69_MODE_RX);
+  packet.rssi = readRSSI();
   return true;
 }
 

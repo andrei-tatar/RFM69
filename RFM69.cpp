@@ -158,7 +158,8 @@ void RFM69::setMode(uint8_t newMode)
     return;
   }
 
-  waitModeReady();
+  if (_mode == RF69_MODE_SLEEP)
+    waitModeReady();
 
   _mode = newMode;
 }
@@ -207,7 +208,9 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
   memcpy(&data[4], buffer, bufferSize);
   _spiTransfer(data, sizeof(data));
 
+#ifndef RADIO_NO_INTERRUPT
   writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_10); // disable DIO0 in TX mode
+#endif
   setMode(RF69_MODE_TX);
   uint32_t txStart = _getTime();
 
@@ -216,8 +219,10 @@ void RFM69::send(uint8_t toAddress, const uint8_t *buffer, uint8_t bufferSize)
     // wait for transmission finish
   }
 
+#ifndef RADIO_NO_INTERRUPT
   setMode(RF69_MODE_STANDBY);                        // standby before listening again
   writeReg(REG_DIOMAPPING1, RF_DIOMAPPING1_DIO0_01); // reenable DIO0 as PayloadReady
+#endif
   setMode(RF69_MODE_RX);
 }
 

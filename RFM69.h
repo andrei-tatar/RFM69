@@ -78,6 +78,7 @@ public:
   void rcCalibration();                           // calibrate the internal RC oscillator for use in wide temperature variations - see datasheet section [4.3.5. RC Timer Accuracy]
   bool receive(RfmPacket &packet);
   void setNetwork(uint8_t networkID);
+  void setAddress(uint8_t address);
   
 private:
   inline void waitModeReady();

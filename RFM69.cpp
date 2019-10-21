@@ -363,3 +363,8 @@ void RFM69::setNetwork(uint8_t networkID)
 {
   writeReg(REG_SYNCVALUE2, networkID);
 }
+
+void RFM69::setAddress(uint8_t address)
+{
+  _address = address;
+}
